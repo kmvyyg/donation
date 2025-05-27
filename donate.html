@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Donate</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f7f7f7; margin: 0; padding: 0; }
+    .container { max-width: 400px; margin: 60px auto; background: #fff; padding: 32px 24px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    h2 { text-align: center; color: #2d7a2d; }
+    label { display: block; margin-top: 18px; margin-bottom: 6px; font-weight: bold; }
+    input[type="text"], input[type="number"] { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+    button { width: 100%; background: #2d7a2d; color: #fff; border: none; padding: 12px; border-radius: 4px; font-size: 1.1em; margin-top: 22px; cursor: pointer; }
+    button:hover { background: #256325; }
+    .success { color: #2d7a2d; text-align: center; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Make a Donation</h2>
+    <form id="donateForm">
+      <label for="amount">Donation Amount ($)</label>
+      <input type="number" id="amount" name="amount" min="1" step="0.01" required>
+      <label for="cc">Credit Card Number</label>
+      <input type="text" id="cc" name="cc" maxlength="16" pattern="\d{15,16}" required>
+      <label for="exp">Expiration Date (MMYY)</label>
+      <input type="text" id="exp" name="exp" maxlength="4" pattern="\d{4}" required>
+      <button type="submit">Donate</button>
+    </form>
+    <div class="success" id="successMsg" style="display:none;">Thank you for your donation!</div>
+  </div>
+  <script>
+    document.getElementById('donateForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const form = e.target;
+      const data = {
+        amount: form.amount.value,
+        cc: form.cc.value,
+        exp: form.exp.value
+      };
+      // Simulate donation (replace with real API call if needed)
+      document.getElementById('successMsg').style.display = 'block';
+      form.reset();
+    });
+  </script>
+</body>
+</html>
