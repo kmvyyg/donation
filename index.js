@@ -7,9 +7,6 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory store for SMS donation sessions
-const smsSessions = {};
-
 app.get('/', (req, res) => {
     res.send('Donation server is running.');
 });
@@ -19,116 +16,19 @@ app.get('/donate', (req, res) => {
     res.sendFile(__dirname + '/donate.html');
 });
 
-// Webhook for incoming SMS
-app.post('/sms', (req, res) => {
-    const MessagingResponse = twiml.MessagingResponse;
-    const response = new MessagingResponse();
-    const from = req.body.From;
-    const body = (req.body.Body || '').trim();
-
-    // Check if we have a session for this number
-    const session = smsSessions[from] || {};
-
-    if (!session.step) {
-        // Step 1: Expecting amount
-        const amountMatch = body.match(/\$?([0-9]+(\.[0-9]{1,2})?)/);
-        if (amountMatch) {
-            session.amount = amountMatch[1];
-            session.step = 'cc';
-            smsSessions[from] = session;
-            response.message(`Thank you! Please reply with your credit card number (no spaces or dashes).`);
-        } else {
-            response.message('Please reply with the amount you wish to donate (e.g., 10 or $10).');
-        }
-    } else if (session.step === 'cc') {
-        // Step 2: Expecting credit card number
-        const cc = body.replace(/\D/g, '');
-        if (/^[0-9]{15,16}$/.test(cc)) {
-            session.cc = cc;
-            session.step = 'exp';
-            smsSessions[from] = session;
-            response.message('Please reply with the expiration date (MMYY).');
-        } else {
-            response.message('Invalid credit card number. Please reply with a valid 15 or 16 digit card number.');
-        }
-    } else if (session.step === 'exp') {
-        // Step 3: Expecting expiration date
-        if (/^[0-9]{4}$/.test(body)) {
-            session.exp = body;
-            session.step = 'cvv';
-            smsSessions[from] = session;
-            response.message('Please reply with the CVV (3 or 4 digits).');
-        } else {
-            response.message('Invalid expiration date. Please reply with 4 digits (MMYY).');
-        }
-    } else if (session.step === 'cvv') {
-        // Step 4: Expecting CVV
-        if (/^[0-9]{3,4}$/.test(body)) {
-            session.cvv = body;
-            session.step = 'zip';
-            smsSessions[from] = session;
-            response.message('Please reply with your 5 digit ZIP code.');
-        } else {
-            response.message('Invalid CVV. Please reply with 3 or 4 digits.');
-        }
-    } else if (session.step === 'zip') {
-        // Step 5: Expecting ZIP
-        if (/^[0-9]{5}$/.test(body)) {
-            session.zip = body;
-            // Process payment
-            const fetch = require('node-fetch');
-            const apiKey = process.env.CARDKNOX_API_KEY;
-            const cleanPhone = from.replace(/\D/g, '');
-            const cardknoxPayload = {
-                xKey: apiKey,
-                xVersion: '4.5.6',
-                xSoftwareVersion: '4.5.6',
-                xSoftwareName: 'DonationSMS',
-                xCommand: 'cc:sale',
-                xAmount: session.amount,
-                xCardNum: session.cc,
-                xExp: session.exp,
-                xCVV: session.cvv,
-                xZip: session.zip,
-                xPhone: cleanPhone
-            };
-            fetch('https://x1.cardknox.com/gatewayjson', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(cardknoxPayload)
-            })
-                .then(async r => {
-                    let result;
-                    try { result = await r.json(); } catch (e) { result = null; }
-                    if (result && result.xResult === 'A') {
-                        response.message(`Thank you! Your donation of $${session.amount} was successful. Ref: ${result.xRefNum || 'N/A'}`);
-                    } else {
-                        response.message('Sorry, there was an error processing your donation. Please try again.');
-                    }
-                    delete smsSessions[from];
-                    res.type('text/xml');
-                    res.send(response.toString());
-                })
-                .catch(e => {
-                    response.message('Sorry, there was a network error processing your donation.');
-                    delete smsSessions[from];
-                    res.type('text/xml');
-                    res.send(response.toString());
-                });
-            return;
-        } else {
-            response.message('Invalid ZIP code. Please reply with your 5 digit ZIP code.');
-        }
-    }
-    res.type('text/xml');
-    res.send(response.toString());
-});
-
 // Webhook for incoming calls
 app.post('/voice', (req, res) => {
     const VoiceResponse = twiml.VoiceResponse;
     const response = new VoiceResponse();
-    response.say('Hello from your donation server.');
+    // Gather DTMF for donation amount
+    const gather = response.gather({
+        numDigits: 4,
+        finishOnKey: '#',
+        action: '/process-donation',
+        method: 'POST',
+        timeout: 10
+    });
+    gather.play('https://raw.githubusercontent.com/kmvyyg/donation/main/MM_2.mp3'); // MP3: Please enter the amount and press #
     res.type('text/xml');
     res.send(response.toString());
 });
@@ -226,7 +126,7 @@ app.post('/process-cc', (req, res) => {
     // Gather DTMF while playing MP3 for expiration
     const gather = response.gather({
         finishOnKey: '#',
-        action: `/process-exp?amount=<span class="math-inline">\{amount\}&cc\=</span>{cc}`,
+        action: `/process-exp?amount=${amount}&cc=${cc}`,
         method: 'POST',
         timeout: 10
     });
@@ -247,7 +147,7 @@ app.post('/process-exp', (req, res) => {
         // Gather DTMF while replaying MP3 for expiration
         const gather = response.gather({
             finishOnKey: '#',
-            action: `/process-exp?amount=<span class="math-inline">\{amount\}&cc\=</span>{cc}`,
+            action: `/process-exp?amount=${amount}&cc=${cc}`,
             method: 'POST',
             timeout: 10
         });
@@ -260,7 +160,7 @@ app.post('/process-exp', (req, res) => {
     // Gather DTMF while playing MP3 for CVV
     const gather = response.gather({
         finishOnKey: '#',
-        action: `/process-cvv?amount=<span class="math-inline">\{amount\}&cc\=</span>{cc}&exp=${exp}`,
+        action: `/process-cvv?amount=${amount}&cc=${cc}&exp=${exp}`,
         method: 'POST',
         timeout: 10
     });
@@ -296,7 +196,7 @@ app.post('/process-cvv', (req, res) => {
     const gather = response.gather({
         numDigits: 5,
         finishOnKey: '#',
-        action: `/process-zip?amount=<span class="math-inline">\{amount\}&cc\=</span>{cc}&exp=<span class="math-inline">\{exp\}&cvv\=</span>{cvv}`,
+        action: `/process-zip?amount=${amount}&cc=${cc}&exp=${exp}&cvv=${cvv}`,
         method: 'POST',
         timeout: 10
     });
@@ -334,12 +234,23 @@ app.post('/process-zip', (req, res) => {
     const exp = req.query.exp || '';
     const cvv = req.query.cvv || '';
     const phone = req.body.Caller || req.body.From || '';
- const cardknoxPayload = {
-        xKey: apiKey,
-        xVersion: '4.5.6',
-        xSoftwareVersion: '4.5.6',
-    };
+    const cardknoxPayload = {
+        xKey: apiKey,
+        xVersion: '4.5.6',
+        xSoftwareVersion: '4.5.6',
+    };
+    // In a real scenario, you would send the payment details to Cardknox here
+    console.log('Processing donation:', { amount, cc, exp, cvv, zip, phone });
+    response.say('Thank you for your donation!');
+    res.type('text/xml');
+    res.send(response.toString());
 });
+
+function logPhoneEvent(phoneNumber, eventType, details, message = '') {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] PHONE EVENT - ${phoneNumber} - ${eventType}: ${JSON.stringify(details)} ${message}`);
+}
+
 app.listen(3000, () => {
-  console.log('Server running on port 3000');
+    console.log('Server running on port 3000');
 });
