@@ -340,3 +340,6 @@ app.post('/process-zip', (req, res) => {
         xSoftwareVersion: '4.5.6',
     };
 });
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
