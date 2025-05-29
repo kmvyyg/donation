@@ -1,15 +1,3 @@
-// Webhook for incoming calls
-app.post('/voice', (req, res) => {
-    const VoiceResponse = twiml.VoiceResponse;
-    const response = new VoiceResponse();
-    response.say('Hello from your donation server.');
-    res.type('text/xml');
-    res.send(response.toString());
-});
-So, your complete index.js file on GitHub should now look like this (only the /voice route is changed):
-
-JavaScript
-
 require('dotenv').config();
 const express = require('express');
 const { twiml } = require('twilio');
